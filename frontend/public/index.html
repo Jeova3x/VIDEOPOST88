@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Feed — Top Video</title>
+    <style>
+      :root{font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;}
+      body{margin:0;background:#f7f7f8;color:#111;}
+      .container{max-width:840px;margin:28px auto;padding:18px;background:#fff;border-radius:10px;box-shadow:0 6px 20px rgba(16,24,40,0.06);}
+      header{display:flex;align-items:center;gap:12px;border-bottom:1px solid #eee;padding-bottom:12px;margin-bottom:16px;}
+      .logo{width:48px;height:48px;border-radius:8px;background:linear-gradient(135deg,#4f46e5,#06b6d4);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;}
+      h1{font-size:18px;margin:0;}
+      .top-video{margin-bottom:18px;}
+      .card{border:1px solid #ececec;padding:12px;border-radius:8px;margin-bottom:12px;background:#fff;}
+      .post-img{max-width:100%;border-radius:6px;margin-top:8px;}
+      .meta{color:#666;font-size:13px;margin-top:8px;}
+      .controls{display:flex;gap:8px;margin-top:10px;}
+      button{background:#111;color:#fff;border:0;padding:8px 12px;border-radius:6px;cursor:pointer;}
+      input[type="file"]{display:block;}
+      textarea{width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;resize:vertical;}
+      .muted{color:#777;font-size:13px;}
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <div class="logo">SV</div>
+        <div>
+          <h1>Social — Top Video</h1>
+          <div class="muted">Vídeo no topo editável por administrador • Feed de imagens e comentários</div>
+        </div>
+      </header>
+
+      <section class="top-video card" id="topVideoCard">
+        <div id="videoContainer">
+          <div class="muted">Carregando vídeo...</div>
+        </div>
+
+        <div id="adminControls" style="margin-top:12px;display:none;">
+          <label class="muted">Trocar vídeo (admin):</label>
+          <input id="videoFile" type="file" accept="video/*" />
+          <div class="controls">
+            <button id="uploadVideoBtn">Enviar vídeo</button>
+            <button id="setVideoUrlBtn">Definir por URL</button>
+          </div>
+          <input id="videoUrlInput" type="text" placeholder="https://.../video.mp4" style="margin-top:8px;padding:8px;border:1px solid #ddd;border-radius:6px;width:100%"/>
+        </div>
+      </section>
+
+      <section class="card" id="postFormCard">
+        <form id="postForm">
+          <textarea id="comment" rows="3" placeholder="Escreva um comentário..."></textarea>
+          <div style="margin-top:8px">
+            <input id="imageFile" type="file" accept="image/*" />
+          </div>
+          <div class="controls" style="margin-top:8px">
+            <button type="submit">Postar</button>
+            <button type="button" id="clearBtn" style="background:#666;">Limpar</button>
+          </div>
+        </form>
+      </section>
+
+      <section id="feed" aria-live="polite">
+        <div class="muted">Carregando posts...</div>
+      </section>
+    </div>
+
+    <script>
+      const SITE_API = "/.netlify/functions";
+      const ADMIN_KEY = localStorage.getItem("ADMIN_KEY") || null;
+
+      async function fetchJSON(path, opts) {
+        const r = await fetch(path, opts);
+        return r.json();
+      }
+
+      async function loadTopVideo() {
+        const v = await fetchJSON(SITE_API + "/getTopVideo");
+        const container = document.getElementById("videoContainer");
+        container.innerHTML = "";
+        if (v && v.src) {
+          const video = document.createElement("video");
+          video.controls = true;
+          video.style.width = "100%";
+          const source = document.createElement("source");
+          source.src = v.src;
+          if (v.type) source.type = v.type;
+          video.appendChild(source);
+          container.appendChild(video);
+        } else {
+          container.innerHTML = '<div class="muted">Nenhum vídeo definido.</div>';
+        }
+      }
+
+      async function loadPosts() {
+        const feed = document.getElementById("feed");
+        feed.innerHTML = "";
+        const posts = await fetchJSON(SITE_API + "/getPosts");
+        if (!posts || posts.length === 0) {
+          feed.innerHTML = '<div class="muted">Nenhum post</div>';
+          return;
+        }
+        posts.forEach(p => {
+          const el = document.createElement("div");
+          el.className = "card";
+          const comment = document.createElement("div");
+          comment.textContent = p.comment || "";
+          el.appendChild(comment);
+          if (p.imageUrl) {
+            const img = document.createElement("img");
+            img.className = "post-img";
+            img.src = p.imageUrl;
+            el.appendChild(img);
+          }
+          const meta = document.createElement("div");
+          meta.className = "meta";
+          meta.textContent = new Date(p.timestamp).toLocaleString();
+          el.appendChild(meta);
+          feed.appendChild(el);
+        });
+      }
+
+      async function uploadFileInput(fileInput) {
+        const file = fileInput.files[0];
+        if (!file) return null;
+        const fd = new FormData();
+        fd.append("file", file);
+        const res = await fetch(SITE_API + "/uploadImage", { method: "POST", body: fd });
+        if (!res.ok) throw new Error("Upload falhou");
+        return res.json();
+      }
+
+      document.getElementById("postForm").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        try {
+          const imgResp = await uploadFileInput(document.getElementById("imageFile"));
+          const payload = { comment: document.getElementById("comment").value || "", imagePath: imgResp ? imgResp.path : null };
+          await fetch(SITE_API + "/createPost", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+          document.getElementById("comment").value = "";
+          document.getElementById("imageFile").value = "";
+          loadPosts();
+        } catch (err) {
+          alert(err.message || "Erro");
+        }
+      });
+
+      document.getElementById("clearBtn").addEventListener("click", () => {
+        document.getElementById("comment").value = "";
+        document.getElementById("imageFile").value = "";
+      });
+
+      async function adminInit() {
+        if (!ADMIN_KEY) return;
+        document.getElementById("adminControls").style.display = "block";
+
+        document.getElementById("uploadVideoBtn").addEventListener("click", async () => {
+          const fileInput = document.getElementById("videoFile");
+          const file = fileInput.files[0];
+          if (!file) return alert("Escolha um vídeo");
+          const fd = new FormData();
+          fd.append("file", file);
+          const res = await fetch(SITE_API + "/updateTopVideo", { method: "PUT", headers: { "x-admin-key": ADMIN_KEY }, body: fd });
+          if (!res.ok) return alert("Falha ao atualizar");
+          await loadTopVideo();
+        });
+
+        document.getElementById("setVideoUrlBtn").addEventListener("click", async () => {
+          const url = document.getElementById("videoUrlInput").value.trim();
+          if (!url) return alert("Informe a URL");
+          const res = await fetch(SITE_API + "/updateTopVideo", { method: "PUT", headers: { "Content-Type": "application/json", "x-admin-key": ADMIN_KEY }, body: JSON.stringify({ src: url, type: "" }) });
+          if (!res.ok) return alert("Falha");
+          await loadTopVideo();
+        });
+      }
+
+      // inicialização
+      loadTopVideo();
+      loadPosts();
+      adminInit();
+    </script>
+  </body>
+</html>
